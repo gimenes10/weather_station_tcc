@@ -1,6 +1,8 @@
 #include "bh1750.h"
 #include "pin_config.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "bh1750";
 #define I2C_TIMEOUT_MS  200

@@ -1,6 +1,8 @@
 #include "mpu6050.h"
 #include "pin_config.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "mpu6050";
 #define I2C_TIMEOUT_MS  100

@@ -3,6 +3,8 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "oled";
 #define I2C_TIMEOUT_MS  100

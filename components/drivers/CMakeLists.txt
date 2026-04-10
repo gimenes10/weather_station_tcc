@@ -4,6 +4,6 @@ idf_component_register(
         "adc_reader.c"
         "oled_ssd1306.c"
     INCLUDE_DIRS "include"
-    REQUIRES driver esp_adc
+    REQUIRES esp_driver_i2c esp_driver_gpio esp_adc
     PRIV_REQUIRES board_config
 )
