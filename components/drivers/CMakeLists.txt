@@ -3,7 +3,8 @@ idf_component_register(
         "i2c_bus.c"
         "adc_reader.c"
         "oled_ssd1306.c"
+        "lora_sx1262.c"
     INCLUDE_DIRS "include"
-    REQUIRES esp_driver_i2c esp_driver_gpio esp_adc
+    REQUIRES esp_driver_i2c esp_driver_gpio esp_driver_spi esp_adc
     PRIV_REQUIRES board_config
 )

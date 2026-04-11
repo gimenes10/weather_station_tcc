@@ -2,11 +2,12 @@
  * @file pin_config.h
  * @brief Definição dos pinos do Heltec WiFi LoRa 32 V3 para a estação meteorológica.
  *
- * Mapeamento baseado na documentação oficial da Heltec:
+ * Mapeamento baseado na documentação oficial da Heltec e esquemático:
  * - I2C sensores: GPIO 47 (SDA), GPIO 48 (SCL) — I2C_NUM_1
  * - I2C OLED:     GPIO 17 (SDA), GPIO 18 (SCL) — I2C_NUM_0
  * - ADC:          GPIO 1..3 — ADC1_CH0..CH2
  * - Rain power:   GPIO 7 — liga/desliga alimentação do sensor de chuva
+ * - LoRa SX1262:  SPI2 (GPIO 9,10,11) + controle (GPIO 8,12,13,14)
  */
 #pragma once
 
@@ -36,3 +37,21 @@
 
 /* ---------- GPIO — Controle de alimentação ---------- */
 #define RAIN_POWER_PIN      GPIO_NUM_7      /* Liga/desliga VCC do FC-22 */
+
+/* ---------- SPI — LoRa SX1262 ---------- */
+#define LORA_SPI_HOST       SPI2_HOST
+#define LORA_PIN_SCK        GPIO_NUM_9
+#define LORA_PIN_MOSI       GPIO_NUM_10
+#define LORA_PIN_MISO       GPIO_NUM_11
+#define LORA_PIN_CS          GPIO_NUM_8
+#define LORA_PIN_RST        GPIO_NUM_12
+#define LORA_PIN_BUSY       GPIO_NUM_13
+#define LORA_PIN_DIO1       GPIO_NUM_14
+
+/* ---------- LoRa — Parâmetros RF ---------- */
+#define LORA_FREQUENCY_HZ   915000000   /* 915 MHz — ISM Brasil */
+#define LORA_SF             7           /* Spreading Factor 7 */
+#define LORA_BW             0x04        /* 125 kHz */
+#define LORA_CR             0x01        /* Coding Rate 4/5 */
+#define LORA_TX_POWER       22          /* dBm (max SX1262) */
+#define LORA_PREAMBLE_LEN   8
