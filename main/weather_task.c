@@ -10,6 +10,7 @@
 #include "oled_ssd1306.h"
 #include "lora_sx1262.h"
 #include "lora_packet.h"
+#include "sensor_health.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,6 +32,7 @@ static mpu6050_handle_t          mpu6050;
 static bh1750_handle_t           bh1750;
 static oled_handle_t             oled;
 static lora_sx1262_handle_t      lora;
+static sensor_health_t           health;
 
 static bool oled_available = false;
 
@@ -105,6 +107,9 @@ esp_err_t weather_station_init(void)
         ESP_LOGE(TAG, "Falha na init LoRa SX1262");
         goto err_init;
     }
+
+    /* 9. Sensor Health */
+   sensor_health_init(&health);
 
     ESP_LOGI(TAG, "Todos os perifericos inicializados com sucesso!");
     return ESP_OK;
@@ -245,14 +250,17 @@ void weather_task(void *arg)
         if (bme280_read(&bme280, &env) != ESP_OK) {
             ESP_LOGW(TAG, "Falha ao ler BME280");
         }
+        sensor_health_check_bme280(&health, &bme280, &env, sensor_bus);
 
         if (mpu6050_read(&mpu6050, &imu) != ESP_OK) {
             ESP_LOGW(TAG, "Falha ao ler MPU-6050");
         }
+        sensor_health_check_mpu6050(&health, &mpu6050, &imu, sensor_bus);
 
         if (bh1750_read(&bh1750, &lux) != ESP_OK) {
             ESP_LOGW(TAG, "Falha ao ler BH1750");
         }
+        sensor_health_check_bh1750(&health, &bh1750, lux, sensor_bus);
 
         if (mq_sensor_read(adc_handle, &mq) != ESP_OK) {
             ESP_LOGW(TAG, "Falha ao ler MQ sensors");
