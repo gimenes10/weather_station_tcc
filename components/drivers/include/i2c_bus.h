@@ -1,35 +1,34 @@
 /**
  * @file i2c_bus.h
- * @brief Inicialização dos barramentos I2C (sensores e OLED).
+ * @brief Barramento I2C dos sensores e acesso a registradores.
  *
- * Cria dois barramentos I2C independentes:
- * - I2C_NUM_1 para sensores externos (BME280, MPU-6050, BH1750)
- * - I2C_NUM_0 para o display OLED SSD1306
+ * Um único barramento (SDA GPIO41, SCL GPIO40, 10 kHz) com BME680 e BH1750.
+ * Pull-ups: os dos módulos, mais os internos do ESP32 (~45 kΩ).
  */
 #pragma once
 
 #include "driver/i2c_master.h"
 #include "esp_err.h"
+#include <stddef.h>
+#include <stdint.h>
+
+/** @brief Cria o barramento dos sensores. */
+esp_err_t i2c_bus_init(i2c_master_bus_handle_t *bus);
 
 /**
- * @brief Inicializa ambos os barramentos I2C.
- *
- * @param[out] sensor_bus  Handle do barramento dos sensores
- * @param[out] oled_bus    Handle do barramento do OLED
- * @return ESP_OK em sucesso, código de erro caso contrário
+ * @brief Varre 0x08–0x77 e loga os endereços que responderam.
+ * @return Quantidade de dispositivos encontrados
  */
-esp_err_t i2c_bus_init(i2c_master_bus_handle_t *sensor_bus,
-                       i2c_master_bus_handle_t *oled_bus);
+int i2c_bus_scan(i2c_master_bus_handle_t bus);
 
-/**
- * @brief Adiciona um dispositivo I2C ao barramento especificado.
- *
- * @param bus_handle  Handle do barramento
- * @param addr        Endereço I2C de 7 bits
- * @param speed_hz    Velocidade do clock SCL em Hz
- * @param[out] dev    Handle do dispositivo criado
- * @return ESP_OK em sucesso
- */
-esp_err_t i2c_bus_add_device(i2c_master_bus_handle_t bus_handle,
-                             uint8_t addr, uint32_t speed_hz,
-                             i2c_master_dev_handle_t *dev);
+/** @brief Libera um barramento travado (9 pulsos em SCL + reset do controlador). */
+esp_err_t i2c_bus_reset(i2c_master_bus_handle_t bus);
+
+/** @brief Adiciona um dispositivo de 7 bits na frequência do barramento. */
+esp_err_t i2c_bus_add(i2c_master_bus_handle_t bus, uint8_t addr, i2c_master_dev_handle_t *dev);
+
+/** @brief Escreve um byte num registrador de 8 bits. */
+esp_err_t i2c_reg_write8(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t val);
+
+/** @brief Lê `len` bytes a partir de `reg`. */
+esp_err_t i2c_reg_read(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *buf, size_t len);

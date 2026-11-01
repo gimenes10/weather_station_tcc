@@ -1,57 +1,63 @@
 /**
  * @file pin_config.h
- * @brief Definição dos pinos do Heltec WiFi LoRa 32 V3 para a estação meteorológica.
+ * @brief Mapa de pinos do nó sensor (Heltec WiFi LoRa 32 V3) e parâmetros fixos.
  *
- * Mapeamento baseado na documentação oficial da Heltec e esquemático:
- * - I2C sensores: GPIO 47 (SDA), GPIO 48 (SCL) — I2C_NUM_1
- * - I2C OLED:     GPIO 17 (SDA), GPIO 18 (SCL) — I2C_NUM_0
- * - ADC:          GPIO 1..3 — ADC1_CH0..CH2
- * - Rain power:   GPIO 7 — liga/desliga alimentação do sensor de chuva
- * - LoRa SX1262:  SPI2 (GPIO 9,10,11) + controle (GPIO 8,12,13,14)
+ * Segue o diagrama "Estação meteorológica: onde ligar cada fio".
+ *
+ * | GPIO  | Função                                   | Observação                       |
+ * |-------|------------------------------------------|----------------------------------|
+ * | 41/40 | SDA/SCL I2C (BME680, BH1750)             | 10 kHz, pull-ups nos módulos     |
+ * | 7     | Vo do GP2Y pelo divisor 12k/20k (ADC1_6) | Atenuação 12 dB                  |
+ * | 47    | LED do GP2Y (base de Q2)                 | ALTO acende                      |
+ * | 38    | Alimentação do FC-22                     | Sempre em nível alto             |
+ * | 2     | AO do FC-22 (ADC1_1)                     |                                  |
+ * | 4     | Reed do anemômetro (interrupção)         | Pull-up externo 100k + 10 nF     |
+ * | 5     | Reed do pluviômetro (interrupção)        | Pull-up externo 100k + 10 nF     |
+ *
+ * Alimentação pelo USB-C: o GP2Y fica no 5V do Heltec o tempo todo.
+ * GPIO42 não é usado: nesta placa a entrada dele lê sempre 0 (SCL foi para o GPIO40).
  */
 #pragma once
 
-/* ---------- I2C — Barramento dos sensores (I2C_NUM_1) ---------- */
-#define SENSOR_I2C_PORT     I2C_NUM_1
-#define SENSOR_I2C_SDA      GPIO_NUM_47
-#define SENSOR_I2C_SCL      GPIO_NUM_48
-#define SENSOR_I2C_FREQ_HZ  100000      /* 100 kHz — Standard mode */
+#include "hal/gpio_types.h"
+#include "hal/adc_types.h"
 
-/* ---------- I2C — OLED SSD1306 (I2C_NUM_0) ---------- */
-#define OLED_I2C_PORT       I2C_NUM_0
-#define OLED_I2C_SDA        GPIO_NUM_17
-#define OLED_I2C_SCL        GPIO_NUM_18
-#define OLED_I2C_FREQ_HZ    400000      /* 400 kHz — Fast mode */
-#define OLED_RST_PIN        GPIO_NUM_21
-#define OLED_I2C_ADDR       0x3C
+/* ---------- I2C dos sensores ---------- */
+#define SENSOR_I2C_PORT       I2C_NUM_0
+#define SENSOR_I2C_SDA        GPIO_NUM_41
+#define SENSOR_I2C_SCL        GPIO_NUM_40
+#define SENSOR_I2C_FREQ_HZ    10000       /* Margem de integridade com cabos até o shield */
 
-/* ---------- Endereços I2C dos sensores ---------- */
-#define BME280_I2C_ADDR     0x76
-#define MPU6050_I2C_ADDR    0x68
-#define BH1750_I2C_ADDR     0x23
+#define BME680_I2C_ADDR       0x76        /* SDO no GND */
+#define BH1750_I2C_ADDR       0x23        /* ADDR no GND */
+#define BH1750_I2C_ADDR_ALT   0x5C        /* ADDR em nível alto (tentado se 0x23 não responder) */
 
-/* ---------- ADC — Sensores analógicos ---------- */
-#define MQ7_ADC_CHANNEL     ADC_CHANNEL_0   /* GPIO 1 */
-#define MQ2_ADC_CHANNEL     ADC_CHANNEL_1   /* GPIO 2 */
-#define RAIN_ADC_CHANNEL    ADC_CHANNEL_2   /* GPIO 3 */
+/* ---------- ADC1 ---------- */
+#define GP2Y_ADC_CHANNEL      ADC_CHANNEL_6   /* GPIO7 */
+#define RAIN_ADC_CHANNEL      ADC_CHANNEL_1   /* GPIO2 */
 
-/* ---------- GPIO — Controle de alimentação ---------- */
-#define RAIN_POWER_PIN      GPIO_NUM_7      /* Liga/desliga VCC do FC-22 */
+/* ---------- Saídas de controle ---------- */
+#define GP2Y_LED_PIN          GPIO_NUM_47
+#define RAIN_POWER_PIN        GPIO_NUM_38
+
+/* ---------- Reeds (interrupção de GPIO, reed fechado = nível 0) ---------- */
+#define WIND_REED_PIN         GPIO_NUM_4
+#define GAUGE_REED_PIN        GPIO_NUM_5
 
 /* ---------- SPI — LoRa SX1262 ---------- */
-#define LORA_SPI_HOST       SPI2_HOST
-#define LORA_PIN_SCK        GPIO_NUM_9
-#define LORA_PIN_MOSI       GPIO_NUM_10
-#define LORA_PIN_MISO       GPIO_NUM_11
-#define LORA_PIN_CS          GPIO_NUM_8
-#define LORA_PIN_RST        GPIO_NUM_12
-#define LORA_PIN_BUSY       GPIO_NUM_13
-#define LORA_PIN_DIO1       GPIO_NUM_14
+#define LORA_SPI_HOST         SPI2_HOST
+#define LORA_PIN_SCK          GPIO_NUM_9
+#define LORA_PIN_MOSI         GPIO_NUM_10
+#define LORA_PIN_MISO         GPIO_NUM_11
+#define LORA_PIN_CS           GPIO_NUM_8
+#define LORA_PIN_RST          GPIO_NUM_12
+#define LORA_PIN_BUSY         GPIO_NUM_13
+#define LORA_PIN_DIO1         GPIO_NUM_14
 
-/* ---------- LoRa — Parâmetros RF ---------- */
-#define LORA_FREQUENCY_HZ   915000000   /* 915 MHz — ISM Brasil */
-#define LORA_SF             7           /* Spreading Factor 7 */
-#define LORA_BW             0x04        /* 125 kHz */
-#define LORA_CR             0x01        /* Coding Rate 4/5 */
-#define LORA_TX_POWER       22          /* dBm (max SX1262) */
-#define LORA_PREAMBLE_LEN   8
+/* ---------- LoRa — parâmetros RF (iguais no gateway) ---------- */
+#define LORA_FREQUENCY_HZ     915000000   /* ISM Brasil */
+#define LORA_SF               7
+#define LORA_BW               0x04        /* 125 kHz */
+#define LORA_CR               0x01        /* 4/5 */
+#define LORA_TX_POWER         22          /* dBm */
+#define LORA_PREAMBLE_LEN     8

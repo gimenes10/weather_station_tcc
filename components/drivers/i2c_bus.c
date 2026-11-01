@@ -1,66 +1,134 @@
 #include "i2c_bus.h"
 #include "pin_config.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_rom_sys.h"
+#include "driver/gpio.h"
+#include <stdio.h>
 
 static const char *TAG = "i2c_bus";
 
-esp_err_t i2c_bus_init(i2c_master_bus_handle_t *sensor_bus,
-                       i2c_master_bus_handle_t *oled_bus)
+/* A 10 kHz cada byte leva ~0,9 ms; a maior leitura (BME680, 17 bytes) ~20 ms */
+#define I2C_TIMEOUT_MS  100
+
+/* Scan: um NACK a 10 kHz leva ~2 ms. Bem mais que isso = o controlador não
+   consegue gerar o clock (SCL ou SDA presos em nível baixo). */
+#define SCAN_TIMEOUT_MS 20
+#define SCAN_STUCK_US   10000
+
+/*
+ * Diagnóstico: nível que o próprio ESP32 lê em SDA/SCL, com pull-up interno,
+ * antes de o controlador I2C assumir os pinos. Diferente do multímetro, não
+ * mede média de tráfego: 0 aqui = linha realmente presa em nível baixo.
+ */
+static void pin_check(void)
 {
-    esp_err_t ret;
-
-    /* --- Barramento dos sensores (I2C_NUM_1) --- */
-    i2c_master_bus_config_t sensor_cfg = {
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .i2c_port   = SENSOR_I2C_PORT,
-        .scl_io_num = SENSOR_I2C_SCL,
-        .sda_io_num = SENSOR_I2C_SDA,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = false,  /* Pull-ups nos módulos breakout */
+    const gpio_config_t io = {
+        .pin_bit_mask = (1ULL << SENSOR_I2C_SDA) | (1ULL << SENSOR_I2C_SCL),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
     };
 
-    ret = i2c_new_master_bus(&sensor_cfg, sensor_bus);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Falha ao criar barramento de sensores: %s", esp_err_to_name(ret));
-        goto err_sensor;
-    }
-    ESP_LOGI(TAG, "Barramento I2C sensores OK (SDA=%d, SCL=%d)",
-             SENSOR_I2C_SDA, SENSOR_I2C_SCL);
+    gpio_config(&io);
+    esp_rom_delay_us(2000);
+    ESP_LOGI(TAG, "Pinos antes do I2C: SDA(GPIO%d)=%d SCL(GPIO%d)=%d (esperado 1 e 1)",
+             SENSOR_I2C_SDA, gpio_get_level(SENSOR_I2C_SDA),
+             SENSOR_I2C_SCL, gpio_get_level(SENSOR_I2C_SCL));
+}
 
-    /* --- Barramento do OLED (I2C_NUM_0) --- */
-    i2c_master_bus_config_t oled_cfg = {
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .i2c_port   = OLED_I2C_PORT,
-        .scl_io_num = OLED_I2C_SCL,
-        .sda_io_num = OLED_I2C_SDA,
+esp_err_t i2c_bus_init(i2c_master_bus_handle_t *bus)
+{
+    pin_check();
+
+    const i2c_master_bus_config_t cfg = {
+        .clk_source        = I2C_CLK_SRC_DEFAULT,
+        .i2c_port          = SENSOR_I2C_PORT,
+        .scl_io_num        = SENSOR_I2C_SCL,
+        .sda_io_num        = SENSOR_I2C_SDA,
         .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,   /* OLED usa pull-up interno */
+        .flags.enable_internal_pullup = true,    /* ~45 kΩ: garantem nível alto; o pull-up principal é o externo */
     };
+    esp_err_t ret = i2c_new_master_bus(&cfg, bus);
 
-    ret = i2c_new_master_bus(&oled_cfg, oled_bus);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Falha ao criar barramento OLED: %s", esp_err_to_name(ret));
-        goto err_oled;
+        ESP_LOGE(TAG, "Falha ao criar o barramento: %s", esp_err_to_name(ret));
     }
-    ESP_LOGI(TAG, "Barramento I2C OLED OK (SDA=%d, SCL=%d)",
-             OLED_I2C_SDA, OLED_I2C_SCL);
-
-    return ESP_OK;
-
-err_oled:
-    i2c_del_master_bus(*sensor_bus);
-err_sensor:
     return ret;
 }
 
-esp_err_t i2c_bus_add_device(i2c_master_bus_handle_t bus_handle,
-                             uint8_t addr, uint32_t speed_hz,
-                             i2c_master_dev_handle_t *dev)
+esp_err_t i2c_bus_reset(i2c_master_bus_handle_t bus)
 {
-    i2c_device_config_t cfg = {
+    return i2c_master_bus_reset(bus);
+}
+
+int i2c_bus_scan(i2c_master_bus_handle_t bus)
+{
+    /*
+     * Lê 1 byte de cada endereço na frequência do barramento (10 kHz).
+     * O i2c_master_probe() do IDF força 100 kHz, o que daria falso negativo
+     * justamente com cabo longo ou pull-up fraco. Os erros de NACK do driver
+     * são silenciados durante a varredura.
+     *
+     * No IDF 6.1 o driver devolve ESP_ERR_INVALID_RESPONSE tanto para NACK
+     * quanto para timeout; a diferença aparece no tempo de cada tentativa.
+     */
+    const esp_log_level_t lvl = esp_log_level_get("i2c.master");
+    char      list[3 * 112 + 1] = "";
+    int       found = 0;
+    bool      stuck = false;
+
+    esp_log_level_set("i2c.master", ESP_LOG_NONE);
+    for (uint8_t addr = 0x08; addr <= 0x77; addr++) {
+        i2c_master_dev_handle_t dev;
+        uint8_t byte;
+
+        if (i2c_bus_add(bus, addr, &dev) != ESP_OK) {
+            continue;
+        }
+        const int64_t   t0  = esp_timer_get_time();
+        const esp_err_t ret = i2c_master_receive(dev, &byte, 1, SCAN_TIMEOUT_MS);
+        const int64_t   dt  = esp_timer_get_time() - t0;
+        i2c_master_bus_rm_device(dev);
+
+        if (ret == ESP_OK) {
+            snprintf(&list[3 * found], sizeof(list) - 3 * found, " %02X", addr);
+            found++;
+        } else if (dt > SCAN_STUCK_US) {
+            stuck = true;   /* Sem clock no barramento: não adianta testar o resto */
+            break;
+        }
+    }
+    esp_log_level_set("i2c.master", lvl);
+
+    if (stuck) {
+        ESP_LOGE(TAG, "Scan: barramento sem clock (SCL/SDA presos em nivel baixo ou modulo sem VCC)");
+    } else if (found) {
+        ESP_LOGI(TAG, "Scan: %d dispositivo(s):%s (BME680=76, BH1750=23 ou 5C)", found, list);
+    } else {
+        ESP_LOGW(TAG, "Scan: nenhum dispositivo respondeu");
+    }
+    return found;
+}
+
+esp_err_t i2c_bus_add(i2c_master_bus_handle_t bus, uint8_t addr, i2c_master_dev_handle_t *dev)
+{
+    const i2c_device_config_t cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address  = addr,
-        .scl_speed_hz    = speed_hz,
+        .scl_speed_hz    = SENSOR_I2C_FREQ_HZ,
     };
-    return i2c_master_bus_add_device(bus_handle, &cfg, dev);
+    return i2c_master_bus_add_device(bus, &cfg, dev);
+}
+
+esp_err_t i2c_reg_write8(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t val)
+{
+    const uint8_t buf[2] = { reg, val };
+    return i2c_master_transmit(dev, buf, sizeof(buf), I2C_TIMEOUT_MS);
+}
+
+esp_err_t i2c_reg_read(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *buf, size_t len)
+{
+    return i2c_master_transmit_receive(dev, &reg, 1, buf, len, I2C_TIMEOUT_MS);
 }

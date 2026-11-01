@@ -1,12 +1,12 @@
 idf_component_register(
     SRCS
-        "bme280.c"
-        "mpu6050.c"
+        "bme680.c"
         "bh1750.c"
-        "mq_sensor.c"
+        "gp2y1014.c"
         "rain_sensor.c"
-        "sensor_health.c"
+        "wind_sensor.c"
+        "rain_gauge.c"
     INCLUDE_DIRS "include"
-    REQUIRES esp_driver_i2c esp_driver_gpio esp_adc
-    PRIV_REQUIRES board_config drivers
+    REQUIRES esp_driver_i2c
+    PRIV_REQUIRES board_config drivers esp_driver_gpio esp_timer
 )

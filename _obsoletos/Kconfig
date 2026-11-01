@@ -1,0 +1,24 @@
+menu "Estacao meteorologica"
+
+    choice WS_POWER
+        prompt "Alimentacao do no sensor"
+        default WS_POWER_USB
+        help
+            Define como o GP2Y1014 recebe 5 V (aba "Nó sensor" do diagrama).
+
+        config WS_POWER_USB
+            bool "USB-C: GP2Y no 5V do Heltec, sem MT3608, Q1 e Q3"
+
+        config WS_POWER_BATTERY
+            bool "Bateria 1S4P: MT3608 chaveado pelo GPIO48"
+    endchoice
+
+    config WS_CYCLE_S
+        int "Periodo entre transmissoes (s)"
+        range 10 3600
+        default 60
+        help
+            O no acorda, le os sensores, transmite e volta ao deep sleep.
+            O ULP conta vento e chuva continuamente entre os ciclos.
+
+endmenu

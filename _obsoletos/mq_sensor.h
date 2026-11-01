@@ -10,12 +10,17 @@
 
 #include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
+#include <stdbool.h>
 
 typedef struct {
     int mq7_raw;     /* ADC bruto do MQ-7 (CO)              */
     int mq2_raw;     /* ADC bruto do MQ-2 (GLP/metano)      */
     float mq7_voltage; /* Tensão no pino AOUT do MQ-7 (V)   */
     float mq2_voltage; /* Tensão no pino AOUT do MQ-2 (V)   */
+    bool mq7_present;  /* Sensor detectado no canal          */
+    bool mq2_present;
+    int  mq7_swing_mv; /* Swing do teste de presença (diagnóstico) */
+    int  mq2_swing_mv;
 } mq_data_t;
 
 esp_err_t mq_sensor_read(adc_oneshot_unit_handle_t adc, mq_data_t *data);

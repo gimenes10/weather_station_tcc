@@ -1,25 +1,24 @@
 /**
  * @file bh1750.h
- * @brief Driver do sensor BH1750 — luminosidade ambiente (lux).
+ * @brief BH1750 (GY-302) em one-time H-resolution com MTreg = 31.
  *
- * Utiliza modo One-Time H-Resolution para baixo consumo:
- * faz uma medição e entra em power-down automaticamente.
+ * MTreg 31 (padrão 69) amplia o fundo de escala de ~54,6 klx para
+ * ~121,6 klx, acima do sol direto. Resolução cai para ~1,85 lx.
+ *   lux = contagem / 1,2 × 69 / MTreg / transmitância da cúpula
+ * Após a medição o sensor volta sozinho ao power-down.
  */
 #pragma once
 
 #include "driver/i2c_master.h"
 #include "esp_err.h"
 
-typedef struct {
-    i2c_master_dev_handle_t dev;
-} bh1750_handle_t;
+/* Pior caso do datasheet (180 ms em MTreg 69) escalado para MTreg 31 */
+#define BH1750_MEAS_MS  81
 
-esp_err_t bh1750_init(bh1750_handle_t *sensor, i2c_master_bus_handle_t bus);
+esp_err_t bh1750_init(i2c_master_bus_handle_t bus);
 
-/**
- * @brief Faz uma leitura one-time de luminosidade.
- * @param sensor  Handle do sensor
- * @param[out] lux  Valor de luminosidade em lux
- * @return ESP_OK em sucesso
- */
-esp_err_t bh1750_read(bh1750_handle_t *sensor, float *lux);
+/** @brief Liga, ajusta MTreg e dispara uma medição one-time. */
+esp_err_t bh1750_trigger(void);
+
+/** @brief Lê o resultado (chamar ≥ BH1750_MEAS_MS após o trigger). */
+esp_err_t bh1750_read(float *lux);

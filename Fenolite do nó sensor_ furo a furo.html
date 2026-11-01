@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fenolite do nó sensor: furo a furo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#E6EBEF;--surface:#F6F8FA;--ink:#1B2530;--muted:#55626F;--line:#C6CFD8;--board:#E9E6D8;--board-edge:#B9B39C;--pad:#C98A3A;--pad-hole:#3B3F44;--copper:#C7843E;--body:#F6F8FA;--focus:#E8A317;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141A20;--surface:#1B232B;--ink:#E2E8EE;--muted:#9AA7B4;--line:#2E3944;--board:#2A2B26;--board-edge:#4A4A40;--pad:#B07A35;--pad-hole:#0E1012;--copper:#B87A3A;--body:#202A33;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141A20;--surface:#1B232B;--ink:#E2E8EE;--muted:#9AA7B4;--line:#2E3944;--board:#2A2B26;--board-edge:#4A4A40;--pad:#B07A35;--pad-hole:#0E1012;--copper:#B87A3A;--body:#202A33;color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:28px clamp(16px,4vw,48px) 0;max-width:1400px}
+h1{font:700 clamp(30px,4.2vw,46px)/1.02 "Barlow Condensed","Arial Narrow",sans-serif;letter-spacing:-.01em;margin:0 0 10px}
+header p{margin:0;color:var(--muted);max-width:72ch}
+main{padding:20px clamp(16px,4vw,48px) 56px;max-width:1400px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 12px}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{font:600 14px "Barlow",sans-serif;color:var(--muted);background:none;border:0;border-radius:7px;padding:8px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+button:focus-visible,.leg:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.stage{display:grid;grid-template-columns:minmax(0,560px) minmax(260px,1fr);gap:20px;align-items:start}
+.canvas{border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden}
+.canvas svg{display:block;width:100%;height:auto}
+.side{position:sticky;top:12px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;max-height:calc(100vh - 24px);overflow:auto}
+.inspect{min-height:120px;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:12px}
+.inspect h2{font:700 21px/1.15 "Barlow Condensed",sans-serif;margin:0 0 6px}
+.inspect p{margin:0;font-size:14.5px;color:var(--muted)}
+.legend{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.leg{all:unset;display:flex;gap:10px;align-items:center;width:100%;box-sizing:border-box;padding:6px 8px;border-radius:8px;font-size:14px;cursor:pointer;color:var(--ink)}
+.leg:hover,.leg[aria-pressed="true"]{background:var(--bg)}
+.sw{width:22px;height:6px;border-radius:3px;flex:none}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px 40px;margin-top:28px}
+.cols h2{font:700 24px/1.1 "Barlow Condensed",sans-serif;margin:0 0 12px}
+.cols p{margin:0 0 12px;max-width:72ch}
+.fine{font-size:14px;color:var(--muted)}
+ol.steps{margin:0;padding-left:22px}ol.steps li{margin:0 0 8px;max-width:72ch}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface);margin-bottom:16px}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 14px "Barlow",sans-serif;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:600;white-space:nowrap}
+.lbl{font:600 11px "Barlow Condensed",sans-serif;fill:var(--muted)}
+.pid{font:700 12px "Barlow Condensed",sans-serif;fill:var(--ink)}
+svg .w,svg .p{transition:opacity .15s}
+svg.focus .w:not(.hl),svg.focus .p:not(.hl){opacity:.12}
+svg.focus .w.hl{stroke-width:6 !important;opacity:1 !important}
+@media (max-width:900px){.stage{grid-template-columns:minmax(0,1fr)}.side{position:static;max-height:none}}
+@media (prefers-reduced-motion:reduce){svg .w,svg .p{transition:none}}
+</style></head><body>
+<header>
+<h1>Fenolite do nó sensor: furo a furo</h1>
+<p>Placa ilhada de face simples, 5 × 10 cm (16 × 36 furos). Modo TCC com 5 V do USB-C. O Heltec fica no shield; quatro cabos JST trazem os sinais até aqui. Passe o mouse ou toque num fio, num componente ou numa cor da legenda para isolar a ligação.</p>
+</header>
+<main>
+<div class="bar">
+<div class="seg" role="group" aria-label="Lado da placa">
+<button type="button" id="v-cmp" aria-pressed="true">Lado dos componentes</button>
+<button type="button" id="v-sol" aria-pressed="false">Lado da solda (espelhado)</button>
+</div>
+</div>
+<div class="stage">
+<div class="canvas"><svg id="pcb" role="img" aria-labelledby="pt pd"><title id="pt">Layout da fenolite</title><desc id="pd">Posição de cada conector, resistor, capacitor e de Q2, e os barramentos de fio estanhado na face de cobre.</desc></svg></div>
+<aside class="side">
+<div class="inspect" aria-live="polite"><h2 id="i-name">Nada selecionado</h2><p id="i-desc">Passe o mouse sobre um fio ou escolha uma cor abaixo.</p></div>
+<ul class="legend" id="legend"></ul>
+</aside>
+</div>
+<div class="cols">
+<div>
+<h2>Cabos do shield</h2>
+<div class="tw"><table><thead><tr><th scope="col">Conector</th><th scope="col">Ordem no cabo (pino 1 primeiro)</th><th scope="col">Pino 1 na coluna</th></tr></thead><tbody>
+<tr><td>JA · JST 4</td><td>3V3, GND, GPIO42 (SCL), GPIO41 (SDA)</td><td>1</td></tr>
+<tr><td>JC · JST 4</td><td>GPIO7, GPIO6, GPIO5, GPIO4</td><td>6</td></tr>
+<tr><td>JB · JST 2</td><td>GPIO2, GPIO38</td><td>11</td></tr>
+<tr><td>J3 · JST 2</td><td>5V, GND (pinos 5V e GND do Heltec)</td><td>6 (linha 33)</td></tr>
+</tbody></table></div>
+<p class="fine">Todos os headers do shield ficam na orientação normal: o pino 1 na coluna de número menor. O GP2Y (GPIO7 e GPIO6) desce pela esquerda e os reeds (GPIO5 e GPIO4) pela direita, sem cruzar fios.</p>
+<h2>Saídas para os sensores</h2>
+<div class="tw"><table><thead><tr><th scope="col">Conector</th><th scope="col">Vias</th></tr></thead><tbody>
+<tr><td>J4 · J5</td><td>BME680 e BH1750: 3V3, GND, SCL, SDA</td></tr>
+<tr><td>J6 · J7</td><td>Reservas I2C para os INA219 da IC</td></tr>
+<tr><td>J8</td><td>Anemômetro: reed, GND</td></tr>
+<tr><td>J11</td><td>Pluviômetro: reed, GND</td></tr>
+<tr><td>J10</td><td>Módulo FC-22: AO, VCC, GND</td></tr>
+<tr><td>J9</td><td>GP2Y: 5V, LED, GND, Vo (header girado: pino 1 na coluna 4)</td></tr>
+</tbody></table></div>
+<p class="fine">Os quatro conectores I2C seguem a mesma ordem do JA, que é a ordem dos cabos do diagrama original: os cabos do BME680 e do BH1750 servem sem mudança.</p>
+</div>
+<div>
+<h2>Componentes</h2>
+<div class="tw"><table><thead><tr><th scope="col">Ref.</th><th scope="col">Valor e função</th></tr></thead><tbody id="bom"></tbody></table></div>
+</div>
+<div>
+<h2>Como soldar</h2>
+<ol class="steps">
+<li>A placa é de face simples: componentes entram pelo lado sem cobre, e toda a solda e os barramentos ficam no lado das ilhas.</li>
+<li>Faça os barramentos primeiro, com fio de cobre estanhado nu (22–24 AWG), soldando ilha por ilha. Na vista “lado da solda” cada linha colorida é um desses fios.</li>
+<li>Monte do mais baixo ao mais alto: fios, resistores deitados, capacitores, R4 e R5 em pé, Q2 e, por último, os conectores JST-XH.</li>
+<li>O corpo de um resistor pode passar sobre outros barramentos; só os terminais tocam as ilhas.</li>
+<li>Pontos de atenção para curto: coluna 3 nas linhas 19 e 20 (base e emissor de Q2 em ilhas vizinhas), colunas 5 e 6 nas linhas 23 a 28 (5V e GPIO7 em paralelo) e a linha 1, onde o 3V3 passa logo acima dos pinos dos headers. Q2 fica deitado na linha 20 com a face plana virada para o topo da placa (linha 1).</li>
+<li>Antes de encaixar o Heltec, meça em continuidade cada barramento e confirme que 3V3, 5V e GND não estão em curto entre si. Depois passe verniz, sem atingir os conectores.</li>
+</ol>
+<p class="fine">Confira o número de furos da sua placa e a pinagem do BC547 no datasheet do seu lote antes de soldar. Os trilhos de cobre das bordas não são usados.</p>
+</div>
+</div>
+</main>
+<script>
+const D={"W":[["3V3",[[1,1],[1,16]]],["3V3",[[1,1],[14,1]]],["3V3",[[1,16],[28,16]]],["GND",[[2,2],[35,2]]],["GND",[[35,2],[35,14]]],["GND",[[5,14],[35,14]]],["GND",[[5,13],[5,14]]],["GND",[[22,13],[22,14]]],["GND",[[30,13],[30,14]]],["GND",[[20,2],[20,3]]],["GND",[[33,7],[35,7]]],["SCL",[[2,3],[14,3]]],["SDA",[[2,4],[14,4]]],["ADC",[[2,6],[28,6]]],["LEDCTL",[[2,7],[19,7]]],["PLUV",[[2,8],[25,8]]],["PLUV",[[25,8],[25,12]]],["PLUV",[[25,12],[30,12]]],["ANEM",[[2,9],[17,9]]],["ANEM",[[17,9],[17,12]]],["ANEM",[[17,12],[22,12]]],["FC_AO",[[2,11],[5,11]]],["FC_VCC",[[2,12],[5,12]]],["B",[[17,4],[20,4]]],["B",[[19,3],[19,4]]],["LED",[[20,5],[22,5]]],["LED",[[22,3],[22,5]]],["LED",[[22,3],[33,3]]],["5V",[[23,5],[33,5]]],["5V",[[33,4],[33,6]]],["VO",[[28,1],[33,1]]]],"P":[["JA","xh",[[2,1,"3V3"],[2,2,"GND"],[2,3,"SCL"],[2,4,"SDA"]],""],["JC","xh",[[2,6,"ADC"],[2,7,"LEDCTL"],[2,8,"PLUV"],[2,9,"ANEM"]],""],["JB","xh",[[2,11,"FC_AO"],[2,12,"FC_VCC"]],""],["J4","xh",[[5,1,"3V3"],[5,2,"GND"],[5,3,"SCL"],[5,4,"SDA"]],""],["J5","xh",[[8,1,"3V3"],[8,2,"GND"],[8,3,"SCL"],[8,4,"SDA"]],""],["J6","xh",[[11,1,"3V3"],[11,2,"GND"],[11,3,"SCL"],[11,4,"SDA"]],""],["J7","xh",[[14,1,"3V3"],[14,2,"GND"],[14,3,"SCL"],[14,4,"SDA"]],""],["J10","xh",[[5,11,"FC_AO"],[5,12,"FC_VCC"],[5,13,"GND"]],""],["J8","xh",[[22,12,"ANEM"],[22,13,"GND"]],""],["J11","xh",[[30,12,"PLUV"],[30,13,"GND"]],""],["J9","xh",[[33,1,"VO"],[33,2,"GND"],[33,3,"LED"],[33,4,"5V"]],""],["J3","xh",[[33,6,"5V"],[33,7,"GND"]],""],["R1","r",[[20,12,"ANEM"],[20,16,"3V3"]],"100 kΩ pull-up anemômetro"],["C1","c",[[18,12,"ANEM"],[18,14,"GND"]],"10 nF anemômetro"],["R2","r",[[28,12,"PLUV"],[28,16,"3V3"]],"100 kΩ pull-up pluviômetro"],["C2","c",[[26,12,"PLUV"],[26,14,"GND"]],"10 nF pluviômetro"],["R4","u",[[17,2,"GND"],[17,4,"B"]],"100 kΩ base → GND (em pé)"],["R3","r",[[19,3,"B"],[19,7,"LEDCTL"]],"1 kΩ base de Q2"],["Q2","q",[[20,3,"GND"],[20,4,"B"],[20,5,"LED"]],"BC547 (E, B, C)"],["R7","r",[[26,2,"GND"],[26,6,"ADC"]],"20 kΩ divisor (GND)"],["R6","r",[[28,1,"VO"],[28,6,"ADC"]],"12 kΩ divisor (Vo)"],["R5","u",[[30,3,"LED"],[30,5,"5V"]],"10 kΩ LED → 5V (em pé)"]],"N":{"GND":["GND","#5F6B76","Terra comum. Coluna 2 (esquerda), coluna 14 (direita) e linha 35 formam um U. Chega pelo JA e pelo J3."],"3V3":["3V3","#C2185B","3,3 V do Heltec, pelo JA (pino 1). Corre pela linha 1 até a coluna 16: coluna 1 alimenta os I2C, coluna 16 os pull-ups dos reeds."],"SCL":["SCL, GPIO42","#E8A317","Clock I2C. Coluna 3, até o J7."],"SDA":["SDA, GPIO41","#2F6FDB","Dados I2C. Coluna 4, até o J7. Pull-ups já vêm nos módulos."],"ANEM":["GPIO4, anemômetro","#00A6C8","Entra pelo JC (pino 4). R1 (100 kΩ) ao 3V3 e C1 (10 nF) ao GND fazem o debounce. Ativo em nível baixo."],"PLUV":["GPIO5, pluviômetro","#5A4FCF","Entra pelo JC (pino 3). R2 (100 kΩ) ao 3V3 e C2 (10 nF) ao GND. Ativo em nível baixo."],"LEDCTL":["GPIO6, LED do GP2Y","#B57EDC","Entra pelo JC (pino 2). Vai pelo R3 (1 kΩ) à base de Q2. Nível ALTO acende o LED."],"ADC":["GPIO7, ADC do GP2Y","#2A9D5C","Entra pelo JC (pino 1). Ponto médio do divisor R6 (12 kΩ) / R7 (20 kΩ). ADC1_CH6, atenuação 12 dB."],"FC_VCC":["GPIO38, liga o FC-22","#A0522D","Entra pelo JB (pino 2) e sai no pino VCC do J10. ALTO só durante a leitura."],"FC_AO":["GPIO2, ADC do FC-22","#9C9A2E","Entra pelo JB (pino 1) e sai no pino AO do J10. ADC1_CH1."],"5V":["5V","#D62828","5 V do Heltec (USB-C), pelo J3. Coluna 5 e linha 33 até o J9; alimenta o GP2Y e o R5."],"LED":["LED do GP2Y, pino 3","#8E44AD","R5 (10 kΩ) puxa para 5 V; o coletor de Q2 puxa para GND e acende o LED."],"B":["Base de Q2","#CDA4E8","Entre R3 (1 kΩ) e Q2. R4 (100 kΩ) ao GND mantém o LED apagado no deep sleep."],"VO":["Vo do GP2Y, pino 5","#7BC67E","Saída analógica do sensor. Entra no R6 (12 kΩ) do divisor."]}};
+(function(){
+const svg=document.getElementById('pcb'),NS='http://www.w3.org/2000/svg';
+const s=26,ox=56,oy=56,NC=16,NR=36,Wd=ox*2+NC*s,Ht=oy*2+NR*s;
+svg.setAttribute('viewBox',`0 0 ${Wd} ${Ht}`);
+let sol=false,pinned=null;
+const X=c=>ox+((sol?NC+1-c:c)-.5)*s,Y=r=>oy+(r-.5)*s;
+function e(t,a,txt,par){const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);if(txt!=null)n.textContent=txt;(par||svg).appendChild(n);return n}
+function draw(){
+  [...svg.querySelectorAll(':scope > :not(title):not(desc)')].forEach(n=>n.remove());
+  e('rect',{x:ox-30,y:oy-30,width:NC*s+60,height:NR*s+60,rx:8,fill:'var(--board)',stroke:'var(--board-edge)','stroke-width':1.5});
+  if(sol){const rc={fill:'var(--copper)',opacity:.55};
+    e('rect',{...rc,x:ox-24,y:oy,width:8,height:NR*s,rx:4});e('rect',{...rc,x:ox+NC*s+16,y:oy,width:8,height:NR*s,rx:4});
+    e('rect',{...rc,x:ox,y:oy-24,width:NC*s,height:8,rx:4});e('rect',{...rc,x:ox,y:oy+NR*s+16,width:NC*s,height:8,rx:4});}
+  for(let c=1;c<=NC;c++)e('text',{x:X(c),y:oy-34,'text-anchor':'middle',class:'lbl'},c);
+  for(let r=1;r<=NR;r++)if(r==1||r%5==0)e('text',{x:sol?ox+NC*s+36:ox-36,y:Y(r)+4,'text-anchor':'middle',class:'lbl'},r);
+  for(let r=1;r<=NR;r++)for(let c=1;c<=NC;c++){
+    if(sol)e('rect',{x:X(c)-8,y:Y(r)-8,width:16,height:16,rx:3,fill:'var(--pad)',opacity:.8});
+    e('circle',{cx:X(c),cy:Y(r),r:sol?3:2.6,fill:'var(--pad-hole)',opacity:sol?1:.45});
+  }
+  const g=e('g',{});
+  for(const[n,[a,b]]of D.W){
+    e('line',{class:'w','data-net':n,x1:X(a[1]),y1:Y(a[0]),x2:X(b[1]),y2:Y(b[0]),stroke:D.N[n][1],'stroke-width':sol?5:2.4,'stroke-linecap':'round','stroke-dasharray':sol?'':'4 4',opacity:sol?1:.7},null,g);
+  }
+  for(const[id,k,p,lab]of D.P){
+    const gp=e('g',{class:'p','data-part':id});
+    const xs=p.map(q=>X(q[1])),ys=p.map(q=>Y(q[0]));
+    const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+    if(!sol){
+      if(k=='xh')e('rect',{x:x0-11,y:y0-9,width:x1-x0+22,height:22,rx:3,fill:'#F4F1E8',stroke:'#8E8A7E','stroke-width':1.2},null,gp);
+      if(k=='r'||k=='u')e('line',{x1:xs[0],y1:ys[0],x2:xs[1],y2:ys[1],stroke:'#8E949A','stroke-width':1.6},null,gp);
+      if(k=='r'){const h=y0==y1,mx=(x0+x1)/2,my=(y0+y1)/2;e('rect',{x:h?mx-19:mx-7,y:h?my-7:my-19,width:h?38:14,height:h?14:38,rx:6,fill:'#E6CFA0',stroke:'#8C6D3F','stroke-width':1},null,gp)}
+      if(k=='u')e('circle',{cx:xs[0],cy:ys[0],r:8,fill:'#E6CFA0',stroke:'#8C6D3F','stroke-width':1},null,gp);
+      if(k=='c')e('ellipse',{cx:(x0+x1)/2,cy:y0,rx:17,ry:8,fill:'#EF9F27',stroke:'#854F0B','stroke-width':1},null,gp);
+      if(k=='q'){if(y0==y1){e('path',{d:`M${x0-12} ${y0-8} L${x1+12} ${y0-8} A30 22 0 0 1 ${x0-12} ${y0-8} Z`,fill:'#24282F',stroke:'#000','stroke-width':.8},null,gp);['E','B','C'].forEach((t,i)=>e('text',{x:xs[i],y:y0-14,'text-anchor':'middle',class:'lbl'},t,gp));}
+        else{e('path',{d:`M${x0+8} ${y0-12} L${x0+8} ${y1+12} A22 30 0 0 1 ${x0+8} ${y0-12} Z`,fill:'#24282F',stroke:'#000','stroke-width':.8},null,gp);['E','B','C'].forEach((t,i)=>e('text',{x:x0-20,y:ys[i]+4,'text-anchor':'middle',class:'lbl'},t,gp));}}
+    }
+    p.forEach((q,i)=>e('circle',{class:'w','data-net':q[2],cx:xs[i],cy:ys[i],r:sol?5:4,fill:sol?'#B9C2CB':D.N[q[2]][1],stroke:sol?'#5E6873':'none','stroke-width':1},null,gp));
+    let tx=(x0+x1)/2,ty=y0-14,an='middle';
+    if(k=='xh')ty=y0+28;
+    if(k=='r'&&y0!=y1){tx=x0+(sol?16:-16);ty=(y0+y1)/2+4;an=sol?'start':'end'}
+    if(k=='q'){ty=y0==y1?y0+32:y1+30}
+    if(k=='u'||k=='c')ty=y0-14;
+    e('text',{x:tx,y:ty,'text-anchor':an,class:'pid'},id,gp);
+  }
+  apply();
+}
+const nameEl=document.getElementById('i-name'),descEl=document.getElementById('i-desc');
+let hover=null;
+function apply(){
+  const net=pinned||hover;
+  svg.classList.toggle('focus',!!net);
+  svg.querySelectorAll('.w').forEach(n=>n.classList.toggle('hl',n.dataset.net===net));
+  svg.querySelectorAll('.p').forEach(g=>g.classList.toggle('hl',!!net&&[...g.querySelectorAll('.w')].some(c=>c.dataset.net===net)));
+  document.querySelectorAll('.leg').forEach(l=>l.setAttribute('aria-pressed',l.dataset.net===pinned?'true':'false'));
+  if(net){nameEl.textContent=D.N[net][0];descEl.textContent=D.N[net][2]}
+  else{nameEl.textContent='Nada selecionado';descEl.textContent=sol?'Vista por baixo, espelhada: a coluna 1 fica à direita. Cada linha colorida é um fio estanhado soldado ilha a ilha.':'Vista por cima. O tracejado é o fio estanhado que passa por baixo da placa.'}
+}
+svg.addEventListener('mouseover',ev=>{const t=ev.target.closest('[data-net]');if(t){hover=t.dataset.net;apply()}});
+svg.addEventListener('mouseleave',()=>{hover=null;apply()});
+svg.addEventListener('click',ev=>{const t=ev.target.closest('[data-net]');const n=t?t.dataset.net:null;pinned=(n&&n!==pinned)?n:null;hover=null;apply()});
+const leg=document.getElementById('legend');
+for(const n in D.N){const li=document.createElement('li');const b=document.createElement('button');b.type='button';b.className='leg';b.dataset.net=n;
+  b.innerHTML=`<span class="sw" style="background:${D.N[n][1]}"></span>`;b.appendChild(document.createTextNode(D.N[n][0]));
+  b.addEventListener('click',()=>{pinned=pinned===n?null:n;apply()});
+  b.addEventListener('mouseenter',()=>{hover=n;apply()});b.addEventListener('mouseleave',()=>{hover=null;apply()});
+  li.appendChild(b);leg.appendChild(li)}
+const bom=document.getElementById('bom');
+for(const[id,k,p,lab]of D.P)if(!id.startsWith('J')){const tr=document.createElement('tr');tr.innerHTML=`<td>${id}</td><td></td>`;tr.lastChild.textContent=lab;bom.appendChild(tr)}
+const bc=document.getElementById('v-cmp'),bs=document.getElementById('v-sol');
+bc.onclick=()=>{sol=false;bc.setAttribute('aria-pressed','true');bs.setAttribute('aria-pressed','false');draw()};
+bs.onclick=()=>{sol=true;bs.setAttribute('aria-pressed','true');bc.setAttribute('aria-pressed','false');draw()};
+draw();
+})();
+</script></body></html>

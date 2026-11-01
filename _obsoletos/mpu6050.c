@@ -86,6 +86,7 @@ esp_err_t mpu6050_init(mpu6050_handle_t *sensor, i2c_master_bus_handle_t bus)
 err_cfg:
     i2c_master_bus_rm_device(sensor->dev);
 err_add:
+    sensor->dev = NULL;  /* Marca como offline — leituras retornam INVALID_STATE */
     return ret;
 }
 
@@ -93,6 +94,11 @@ esp_err_t mpu6050_read(mpu6050_handle_t *sensor, mpu6050_data_t *data)
 {
     esp_err_t ret;
     uint8_t raw[14];
+
+    if (sensor->dev == NULL) {
+        ret = ESP_ERR_INVALID_STATE;
+        goto err_read;
+    }
 
     /* Lê 14 bytes: ACCEL(6) + TEMP(2) + GYRO(6) */
     ret = reg_read(sensor->dev, MPU_REG_ACCEL_XOUT_H, raw, 14);

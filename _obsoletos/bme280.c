@@ -66,8 +66,9 @@ static esp_err_t load_calibration(bme280_handle_t *s)
 
     s->dig_H2 = (int16_t)(hbuf[1] << 8) | hbuf[0];
     s->dig_H3 = hbuf[2];
-    s->dig_H4 = (int16_t)((int16_t)hbuf[3] << 4) | (hbuf[4] & 0x0F);
-    s->dig_H5 = (int16_t)((int16_t)hbuf[5] << 4) | (hbuf[4] >> 4);
+    /* H4/H5 são int12 com sinal: o byte MSB precisa de extensão de sinal (int8) */
+    s->dig_H4 = (int16_t)((int16_t)(int8_t)hbuf[3] * 16) | (hbuf[4] & 0x0F);
+    s->dig_H5 = (int16_t)((int16_t)(int8_t)hbuf[5] * 16) | (hbuf[4] >> 4);
     s->dig_H6 = (int8_t)hbuf[6];
 
     return ESP_OK;
@@ -116,7 +117,7 @@ esp_err_t bme280_init(bme280_handle_t *sensor, i2c_master_bus_handle_t bus)
         goto err_id;
     }
 
-    /* Config: standby 1s, filtro coef. 4 */
+    /* Config: t_sb=100 (standby 500 ms), filtro IIR coef. 4 */
     ret = reg_write(sensor->dev, BME280_REG_CONFIG, (0x04 << 5) | (0x02 << 2));
     if (ret != ESP_OK) { goto err_id; }
 
@@ -134,6 +135,7 @@ esp_err_t bme280_init(bme280_handle_t *sensor, i2c_master_bus_handle_t bus)
 err_id:
     i2c_master_bus_rm_device(sensor->dev);
 err_add:
+    sensor->dev = NULL;  /* Marca como offline — leituras retornam INVALID_STATE */
     return ret;
 }
 
@@ -183,6 +185,11 @@ esp_err_t bme280_read(bme280_handle_t *sensor, bme280_data_t *data)
 {
     esp_err_t ret;
     uint8_t raw[8];
+
+    if (sensor->dev == NULL) {
+        ret = ESP_ERR_INVALID_STATE;
+        goto err_read;
+    }
 
     ret = reg_read(sensor->dev, BME280_REG_DATA_START, raw, 8);
     if (ret != ESP_OK) {

@@ -26,6 +26,7 @@ static const char *TAG = "sx1262";
 #define SX_CMD_GET_IRQ_STATUS       0x12
 #define SX_CMD_WRITE_BUFFER         0x0E
 #define SX_CMD_WRITE_REGISTER       0x0D
+#define SX_CMD_READ_REGISTER        0x1D
 #define SX_CMD_SET_DIO3_AS_TCXO     0x97
 #define SX_CMD_CALIBRATE            0x89
 #define SX_CMD_SET_DIO2_AS_RF_SW    0x9D
@@ -45,8 +46,12 @@ static const char *TAG = "sx1262";
 #define SX_IRQ_TIMEOUT      (1 << 9)
 #define SX_IRQ_ALL          0x03FF
 
-/* Registrador de otimização para SF (workaround do datasheet) */
+/*
+ * Workaround "Modulation Quality with 500 kHz LoRa Bandwidth" (datasheet 15.1):
+ * bit 2 do registrador 0x0889 em 0 para BW = 500 kHz e em 1 nas demais.
+ */
 #define SX_REG_TX_MODULATION  0x0889
+#define SX_TX_MOD_BIT         (1U << 2)
 
 #define SPI_TIMEOUT_MS  100
 #define TX_TIMEOUT_MS   5000
@@ -225,6 +230,13 @@ static esp_err_t sx_write_register(uint16_t addr, uint8_t val)
     return spi_write_cmd(cmd, sizeof(cmd));
 }
 
+static esp_err_t sx_read_register(uint16_t addr, uint8_t *val)
+{
+    /* [CMD][ADDR_H][ADDR_L][NOP→status] e então o dado */
+    uint8_t cmd[] = { SX_CMD_READ_REGISTER, (uint8_t)(addr >> 8), (uint8_t)addr, 0x00 };
+    return spi_cmd(cmd, sizeof(cmd), val, 1);
+}
+
 static esp_err_t sx_set_tx(uint32_t timeout_us)
 {
     /* timeout em unidades de 15.625µs */
@@ -374,8 +386,12 @@ esp_err_t lora_sx1262_init(lora_sx1262_handle_t *handle)
     ret = sx_set_modulation_params(LORA_SF, LORA_BW, LORA_CR, 0x00);
     if (ret != ESP_OK) { goto err_cfg; }
 
-    /* Workaround SF: bit2 do reg 0x0889 deve ser 0 para SF <= 6, 1 para SF >= 7 */
-    ret = sx_write_register(SX_REG_TX_MODULATION, 0x04);
+    /* Workaround de BW (ver SX_REG_TX_MODULATION): ler, ajustar o bit 2, escrever */
+    uint8_t txmod;
+    ret = sx_read_register(SX_REG_TX_MODULATION, &txmod);
+    if (ret != ESP_OK) { goto err_cfg; }
+    txmod = (LORA_BW == 0x06) ? (uint8_t)(txmod & ~SX_TX_MOD_BIT) : (uint8_t)(txmod | SX_TX_MOD_BIT);
+    ret = sx_write_register(SX_REG_TX_MODULATION, txmod);
     if (ret != ESP_OK) { goto err_cfg; }
 
     /* Pacote: preamble 8, header explícito, CRC on, IQ normal */

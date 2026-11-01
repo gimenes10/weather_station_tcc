@@ -1,84 +1,102 @@
 #include "bh1750.h"
+#include "i2c_bus.h"
 #include "pin_config.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 static const char *TAG = "bh1750";
-#define I2C_TIMEOUT_MS  200
 
-/* Comandos BH1750 */
-#define BH1750_CMD_POWER_ON       0x01
-#define BH1750_CMD_RESET          0x07
-#define BH1750_CMD_ONE_TIME_H_RES 0x20  /* One-time, H-resolution (1 lux, ~120ms) */
+#define I2C_TIMEOUT_MS      100
 
-static esp_err_t send_cmd(i2c_master_dev_handle_t dev, uint8_t cmd)
+#define CMD_POWER_ON        0x01
+#define CMD_ONE_TIME_H      0x20
+#define CMD_MTREG_HI        0x40    /* 01000_MT[7:5] */
+#define CMD_MTREG_LO        0x60    /* 011_MT[4:0]   */
+
+#define MTREG_DEFAULT       69
+#define MTREG               31
+/* TODO calibrar: razão lux sem cúpula / lux com cúpula, medida lado a lado */
+#define DOME_TRANSMITTANCE  1.0f
+
+static i2c_master_dev_handle_t s_dev;
+
+static esp_err_t send(uint8_t cmd)
 {
-    return i2c_master_transmit(dev, &cmd, 1, I2C_TIMEOUT_MS);
+    return i2c_master_transmit(s_dev, &cmd, 1, I2C_TIMEOUT_MS);
 }
 
-esp_err_t bh1750_init(bh1750_handle_t *sensor, i2c_master_bus_handle_t bus)
+/* Adiciona o sensor no endereço e confirma com POWER_ON */
+static esp_err_t try_addr(i2c_master_bus_handle_t bus, uint8_t addr)
 {
-    esp_err_t ret;
+    esp_err_t ret = i2c_bus_add(bus, addr, &s_dev);
 
-    i2c_device_config_t cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address  = BH1750_I2C_ADDR,
-        .scl_speed_hz    = SENSOR_I2C_FREQ_HZ,
-    };
-    ret = i2c_master_bus_add_device(bus, &cfg, &sensor->dev);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Falha ao adicionar dispositivo: %s", esp_err_to_name(ret));
         goto err_add;
     }
-
-    /* Power on + reset */
-    ret = send_cmd(sensor->dev, BH1750_CMD_POWER_ON);
+    ret = send(CMD_POWER_ON);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Falha no power on: %s", esp_err_to_name(ret));
-        goto err_cmd;
+        goto err_dev;
     }
-    ret = send_cmd(sensor->dev, BH1750_CMD_RESET);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Falha no reset: %s", esp_err_to_name(ret));
-        goto err_cmd;
-    }
-
-    ESP_LOGI(TAG, "BH1750 inicializado (addr=0x%02X)", BH1750_I2C_ADDR);
+    ESP_LOGI(TAG, "BH1750 em 0x%02X", addr);
     return ESP_OK;
 
-err_cmd:
-    i2c_master_bus_rm_device(sensor->dev);
+err_dev:
+    i2c_master_bus_rm_device(s_dev);
 err_add:
+    s_dev = NULL;
     return ret;
 }
 
-esp_err_t bh1750_read(bh1750_handle_t *sensor, float *lux)
+esp_err_t bh1750_init(i2c_master_bus_handle_t bus)
 {
-    esp_err_t ret;
-    uint8_t raw[2];
+    /* 0x23 com ADDR no GND; 0x5C se o pino ADDR estiver em nível alto */
+    esp_err_t ret = try_addr(bus, BH1750_I2C_ADDR);
 
-    /* Dispara medição one-time */
-    ret = send_cmd(sensor->dev, BH1750_CMD_ONE_TIME_H_RES);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Falha ao disparar medição: %s", esp_err_to_name(ret));
-        goto err_read;
+        ret = try_addr(bus, BH1750_I2C_ADDR_ALT);
     }
-
-    /* Aguarda conversão (~120ms no modo H-resolution) */
-    vTaskDelay(pdMS_TO_TICKS(180));
-
-    /* Lê 2 bytes do resultado */
-    ret = i2c_master_receive(sensor->dev, raw, 2, I2C_TIMEOUT_MS);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Falha na leitura: %s", esp_err_to_name(ret));
-        goto err_read;
+        ESP_LOGW(TAG, "Sem resposta em 0x%02X nem 0x%02X", BH1750_I2C_ADDR, BH1750_I2C_ADDR_ALT);
     }
+    return ret;
+}
 
-    /* Converte: valor bruto / 1.2 = lux */
-    *lux = (float)((raw[0] << 8) | raw[1]) / 1.2f;
+esp_err_t bh1750_trigger(void)
+{
+    static const uint8_t seq[] = {
+        CMD_POWER_ON,
+        CMD_MTREG_HI | (MTREG >> 5),
+        CMD_MTREG_LO | (MTREG & 0x1F),
+        CMD_ONE_TIME_H,
+    };
+    esp_err_t ret = ESP_ERR_INVALID_STATE;
+
+    if (s_dev == NULL) {
+        goto err;
+    }
+    for (size_t i = 0; i < sizeof(seq); i++) {
+        ret = send(seq[i]);
+        if (ret != ESP_OK) {
+            goto err;
+        }
+    }
     return ESP_OK;
 
-err_read:
+err:
     return ret;
+}
+
+esp_err_t bh1750_read(float *lux)
+{
+    uint8_t   raw[2];
+    esp_err_t ret;
+
+    if (s_dev == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    ret = i2c_master_receive(s_dev, raw, sizeof(raw), I2C_TIMEOUT_MS);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    *lux = (float)((raw[0] << 8) | raw[1]) / 1.2f * ((float)MTREG_DEFAULT / MTREG) / DOME_TRANSMITTANCE;
+    return ESP_OK;
 }
