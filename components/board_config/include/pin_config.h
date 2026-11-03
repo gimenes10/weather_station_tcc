@@ -8,14 +8,15 @@
  * |-------|------------------------------------------|----------------------------------|
  * | 41/40 | SDA/SCL I2C (BME680, BH1750)             | 10 kHz, pull-ups nos módulos     |
  * | 7     | Vo do GP2Y pelo divisor 12k/20k (ADC1_6) | Atenuação 12 dB                  |
- * | 47    | LED do GP2Y (base de Q2)                 | ALTO acende                      |
- * | 38    | Alimentação do FC-22                     | Sempre em nível alto             |
+ * | 6     | LED do GP2Y (base de Q2 pelo R3 1 kΩ)   | ALTO acende                      |
+ * | 38    | Alimentação do FC-22 pelo JB (opcional) | Sempre em nível alto             |
  * | 2     | AO do FC-22 (ADC1_1)                     |                                  |
  * | 4     | Reed do anemômetro (interrupção)         | Pull-up externo 100k + 10 nF     |
  * | 5     | Reed do pluviômetro (interrupção)        | Pull-up externo 100k + 10 nF     |
  *
  * Alimentação pelo USB-C: o GP2Y fica no 5V do Heltec o tempo todo.
  * GPIO42 não é usado: nesta placa a entrada dele lê sempre 0 (SCL foi para o GPIO40).
+ * GPIO4 a GPIO7 chegam à fenolite num único cabo de 4 vias (conector JC).
  */
 #pragma once
 
@@ -29,15 +30,15 @@
 #define SENSOR_I2C_FREQ_HZ    10000       /* Margem de integridade com cabos até o shield */
 
 #define BME680_I2C_ADDR       0x76        /* SDO no GND */
-#define BH1750_I2C_ADDR       0x23        /* ADDR no GND */
-#define BH1750_I2C_ADDR_ALT   0x5C        /* ADDR em nível alto (tentado se 0x23 não responder) */
+#define BH1750_I2C_ADDR       0x5C        /* ADDR em nível alto (como está montado) */
+#define BH1750_I2C_ADDR_ALT   0x23        /* ADDR no GND (tentado se 0x5C não responder) */
 
 /* ---------- ADC1 ---------- */
 #define GP2Y_ADC_CHANNEL      ADC_CHANNEL_6   /* GPIO7 */
 #define RAIN_ADC_CHANNEL      ADC_CHANNEL_1   /* GPIO2 */
 
 /* ---------- Saídas de controle ---------- */
-#define GP2Y_LED_PIN          GPIO_NUM_47
+#define GP2Y_LED_PIN          GPIO_NUM_6
 #define RAIN_POWER_PIN        GPIO_NUM_38
 
 /* ---------- Reeds (interrupção de GPIO, reed fechado = nível 0) ---------- */
