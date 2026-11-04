@@ -2,6 +2,7 @@
 #include "i2c_bus.h"
 #include "pin_config.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -126,23 +127,55 @@ err:
     return ret;
 }
 
-esp_err_t bme680_init(i2c_master_bus_handle_t bus)
+/* Adiciona o sensor no endereço e confere o chip ID */
+static esp_err_t try_addr(i2c_master_bus_handle_t bus, uint8_t addr)
 {
     uint8_t   id  = 0;
-    esp_err_t ret = i2c_bus_add(bus, BME680_I2C_ADDR, &s_dev);
+    esp_err_t ret = i2c_bus_add(bus, addr, &s_dev);
 
     if (ret != ESP_OK) {
         goto err_add;
     }
-
     ret = i2c_reg_read(s_dev, REG_CHIP_ID, &id, 1);
     if (ret != ESP_OK) {
         goto err_dev;
     }
     if (id != CHIP_ID) {
-        ESP_LOGE(TAG, "Chip ID 0x%02X (esperado 0x%02X)", id, CHIP_ID);
+        /* Comum em módulos vendidos como BME680: BME280 (0x60) ou BMP280 (0x58) */
+        ESP_LOGE(TAG, "0x%02X respondeu com chip ID 0x%02X (esperado 0x%02X)%s", addr, id, CHIP_ID,
+                 id == 0x60 ? ": e um BME280" : id == 0x58 ? ": e um BMP280" : "");
         ret = ESP_ERR_INVALID_RESPONSE;
         goto err_dev;
+    }
+    ESP_LOGI(TAG, "BME680 em 0x%02X", addr);
+    return ESP_OK;
+
+err_dev:
+    i2c_master_bus_rm_device(s_dev);
+err_add:
+    s_dev = NULL;
+    return ret;
+}
+
+esp_err_t bme680_init(i2c_master_bus_handle_t bus)
+{
+    /* 0x76 com SDO no GND; 0x77 com SDO em nível alto (padrão de vários módulos) */
+    static const uint8_t addrs[] = { BME680_I2C_ADDR, BME680_I2C_ADDR_ALT };
+    esp_err_t ret = ESP_FAIL;
+
+    for (size_t i = 0; i < sizeof(addrs); i++) {
+        const int64_t t0 = esp_timer_get_time();
+
+        ret = try_addr(bus, addrs[i]);
+        if (ret == ESP_OK) {
+            break;
+        }
+        /* ~1 ms = NACK (ninguém no endereço); ~100 ms = barramento sem clock */
+        ESP_LOGW(TAG, "0x%02X sem resposta: %s em %lld ms", addrs[i], esp_err_to_name(ret),
+                 (long long)((esp_timer_get_time() - t0) / 1000));
+    }
+    if (ret != ESP_OK) {
+        goto err_add;
     }
 
     if (s_cal_magic != CAL_MAGIC) {

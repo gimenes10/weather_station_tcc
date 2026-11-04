@@ -12,9 +12,10 @@ static const char *TAG = "i2c_bus";
 #define I2C_TIMEOUT_MS  100
 
 /* Scan: um NACK a 10 kHz leva ~2 ms. Bem mais que isso = o controlador não
-   consegue gerar o clock (SCL ou SDA presos em nível baixo). */
+   conseguiu gerar o clock (linha presa em 0 ou subindo devagar demais). */
 #define SCAN_TIMEOUT_MS 20
 #define SCAN_STUCK_US   10000
+#define SCAN_SLOW_MAX   3       /* Tentativas lentas antes de desistir da varredura */
 
 /*
  * Diagnóstico: nível que o próprio ESP32 lê em SDA/SCL, com pull-up interno,
@@ -63,6 +64,18 @@ esp_err_t i2c_bus_reset(i2c_master_bus_handle_t bus)
     return i2c_master_bus_reset(bus);
 }
 
+/* Nível atual das linhas (o driver deixa a entrada habilitada) e o diagnóstico */
+static void log_lines(const char *when)
+{
+    const int sda = gpio_get_level(SENSOR_I2C_SDA);
+    const int scl = gpio_get_level(SENSOR_I2C_SCL);
+
+    ESP_LOGW(TAG, "%s: SDA=%d SCL=%d -> %s", when, sda, scl,
+             (sda && scl) ? "linhas em 1: pull-up fraco ou borda lenta (falta pull-up externo?)"
+             : !scl       ? "SCL preso em 0: dispositivo segurando o clock ou SCL em curto"
+                          : "SDA preso em 0: dispositivo travado no meio de uma transacao");
+}
+
 int i2c_bus_scan(i2c_master_bus_handle_t bus)
 {
     /*
@@ -76,8 +89,11 @@ int i2c_bus_scan(i2c_master_bus_handle_t bus)
      */
     const esp_log_level_t lvl = esp_log_level_get("i2c.master");
     char      list[3 * 112 + 1] = "";
-    int       found = 0;
-    bool      stuck = false;
+    int       found     = 0;
+    int       nack      = 0;
+    int       slow      = 0;
+    uint8_t   slow_addr = 0;
+    int64_t   slow_us   = 0;
 
     esp_log_level_set("i2c.master", ESP_LOG_NONE);
     for (uint8_t addr = 0x08; addr <= 0x77; addr++) {
@@ -96,18 +112,24 @@ int i2c_bus_scan(i2c_master_bus_handle_t bus)
             snprintf(&list[3 * found], sizeof(list) - 3 * found, " %02X", addr);
             found++;
         } else if (dt > SCAN_STUCK_US) {
-            stuck = true;   /* Sem clock no barramento: não adianta testar o resto */
-            break;
+            if (slow == 0) {
+                slow_addr = addr;
+                slow_us   = dt;
+            }
+            if (++slow >= SCAN_SLOW_MAX) {
+                break;   /* Barramento sem clock: não adianta testar o resto */
+            }
+        } else {
+            nack++;
         }
     }
     esp_log_level_set("i2c.master", lvl);
 
-    if (stuck) {
-        ESP_LOGE(TAG, "Scan: barramento sem clock (SCL/SDA presos em nivel baixo ou modulo sem VCC)");
-    } else if (found) {
-        ESP_LOGI(TAG, "Scan: %d dispositivo(s):%s (BME680=76, BH1750=23 ou 5C)", found, list);
-    } else {
-        ESP_LOGW(TAG, "Scan: nenhum dispositivo respondeu");
+    ESP_LOGI(TAG, "Scan: %d ACK%s | %d NACK | %d lentas (BME680=76/77, BH1750=23/5C)",
+             found, found ? list : "", nack, slow);
+    if (slow) {
+        ESP_LOGE(TAG, "Scan: 0x%02X levou %lld ms (NACK normal ~1 ms)", slow_addr, (long long)(slow_us / 1000));
+        log_lines("Linhas depois da tentativa lenta");
     }
     return found;
 }

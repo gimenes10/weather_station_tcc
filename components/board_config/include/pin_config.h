@@ -29,9 +29,10 @@
 #define SENSOR_I2C_SCL        GPIO_NUM_40
 #define SENSOR_I2C_FREQ_HZ    10000       /* Margem de integridade com cabos até o shield */
 
-#define BME680_I2C_ADDR       0x76        /* SDO no GND */
-#define BH1750_I2C_ADDR       0x5C        /* ADDR em nível alto (como está montado) */
-#define BH1750_I2C_ADDR_ALT   0x23        /* ADDR no GND (tentado se 0x5C não responder) */
+#define BME680_I2C_ADDR       0x77        /* SDO em nível alto (como está montado) */
+#define BME680_I2C_ADDR_ALT   0x76        /* SDO no GND (tentado se 0x77 não responder) */
+#define BH1750_I2C_ADDR       0x23        /* ADDR no GND (como está montado) */
+#define BH1750_I2C_ADDR_ALT   0x5C        /* ADDR em nível alto (tentado se 0x23 não responder) */
 
 /* ---------- ADC1 ---------- */
 #define GP2Y_ADC_CHANNEL      ADC_CHANNEL_6   /* GPIO7 */

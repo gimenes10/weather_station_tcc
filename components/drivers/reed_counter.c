@@ -35,7 +35,7 @@ esp_err_t reed_counter_init(reed_counter_t *rc, gpio_num_t gpio, uint32_t min_op
     const gpio_config_t io_cfg = {
         .pin_bit_mask = 1ULL << gpio,
         .mode         = GPIO_MODE_INPUT,
-        .pull_up_en   = GPIO_PULLUP_DISABLE,   /* Pull-up externo de 100 kΩ */
+        .pull_up_en   = GPIO_PULLUP_ENABLE,    /* ~45 kΩ em paralelo com o externo de 100 kΩ: sem ele a linha flutua */
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type    = GPIO_INTR_ANYEDGE,
     };

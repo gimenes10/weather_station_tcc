@@ -14,5 +14,5 @@
     "--compile-commands-dir=c:\\myprojectslocal\\weather_station_tcc\\build"
   ],
   "idf.flashType": "UART",
-  "idf.port": "COM3"
+  "idf.port": "COM4"
 }

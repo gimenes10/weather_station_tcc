@@ -6,6 +6,8 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <stdint.h>
+#include <sys/param.h>
 
 static const char *TAG = "gp2y";
 
@@ -19,6 +21,11 @@ static const char *TAG = "gp2y";
 #define DIV_DEN             20
 #define K_MV_PER_UGM3       5.0f    /* 0,5 V / 100 µg/m³ */
 #define VO_MIN_MV           100     /* Abaixo disso: sensor solto (o divisor puxa o pino a 0) */
+#define GP2Y_DEBUG          0       /* 1 = loga LED apagado × aceso a cada leitura */
+
+/* Acima disso a saída deixa de ser linear e encosta no máximo (~3,5 a 3,8 V) */
+#define DUST_MAX_UGM3       500.0f
+#define VO_SAT_MV           3500
 
 /* Subida máxima do baseline: 10 mV/dia ≈ 20 µg/m³/dia de deriva absorvida */
 #define VOC_CREEP_MV_PER_US (10.0f / 86400e6f)
@@ -49,6 +56,18 @@ static void busy_until(int64_t t0, int64_t us)
     }
 }
 
+void gp2y_q2_test(void)
+{
+    for (;;) {
+        gpio_set_level(GP2Y_LED_PIN, 1);
+        ESP_LOGW(TAG, "TESTE Q2: GPIO6 ALTO  -> pino LED do J9 deve cair para ~0,1 V");
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        gpio_set_level(GP2Y_LED_PIN, 0);
+        ESP_LOGW(TAG, "TESTE Q2: GPIO6 BAIXO -> pino LED do J9 deve voltar a ~5 V");
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+}
+
 esp_err_t gp2y_read(gp2y_data_t *out)
 {
     const UBaseType_t prio = uxTaskPriorityGet(NULL);
@@ -56,7 +75,16 @@ esp_err_t gp2y_read(gp2y_data_t *out)
     int32_t           sum  = 0;
     int               n    = 0;
     int               raw;
+    int               raw_dark = 0;
+    int               raw_min  = INT32_MAX;
+    int               raw_max  = 0;
     esp_err_t         ret  = ESP_OK;
+
+    /* Referência com o LED apagado: se o aceso der igual, o LED não está pulsando */
+    ret = adc_reader_raw(GP2Y_ADC_CHANNEL, &raw_dark);
+    if (ret != ESP_OK) {
+        goto err_vo;
+    }
 
     /*
      * adc_oneshot_read não pode rodar em seção crítica: a janela de 280 µs
@@ -80,12 +108,29 @@ esp_err_t gp2y_read(gp2y_data_t *out)
         if (i >= WARMUP_PULSES) {
             sum += raw;
             n++;
+            raw_min = MIN(raw_min, raw);
+            raw_max = MAX(raw_max, raw);
         }
         vTaskDelayUntil(&last, pdMS_TO_TICKS(PERIOD_MS));
     }
     vTaskPrioritySet(NULL, prio);
 
     out->vo_mv = adc_reader_to_mv(GP2Y_ADC_CHANNEL, (int)(sum / n)) * DIV_NUM / DIV_DEN;
+    (void)raw_min;   /* Só usados no log de depuração */
+    (void)raw_max;
+
+#if GP2Y_DEBUG
+    {
+        const int pin_dark = adc_reader_to_mv(GP2Y_ADC_CHANNEL, raw_dark);
+        const int pin_on   = adc_reader_to_mv(GP2Y_ADC_CHANNEL, (int)(sum / n));
+
+        /* Pino = tensão no GPIO7 (depois do divisor); Vo = no sensor (× 32/20) */
+        ESP_LOGI(TAG, "Pino GPIO7: apagado=%d mV, aceso=%d mV (min %d, max %d) | Vo: apagado=%d, aceso=%d, LED somou %d mV",
+                 pin_dark, pin_on,
+                 adc_reader_to_mv(GP2Y_ADC_CHANNEL, raw_min), adc_reader_to_mv(GP2Y_ADC_CHANNEL, raw_max),
+                 pin_dark * DIV_NUM / DIV_DEN, out->vo_mv, out->vo_mv - pin_dark * DIV_NUM / DIV_DEN);
+    }
+#endif
     if (out->vo_mv < VO_MIN_MV) {
         ret = ESP_ERR_NOT_FOUND;
         goto err_vo;
@@ -108,6 +153,10 @@ esp_err_t gp2y_read(gp2y_data_t *out)
     out->dust_ugm3 = ((float)out->vo_mv - s_voc_mv) / K_MV_PER_UGM3;
     if (out->dust_ugm3 < 0.0f) {
         out->dust_ugm3 = 0.0f;
+    }
+    out->saturated = (out->vo_mv >= VO_SAT_MV) || (out->dust_ugm3 > DUST_MAX_UGM3);
+    if (out->saturated) {
+        out->dust_ugm3 = DUST_MAX_UGM3;   /* Valor real é maior; o pacote leva a flag */
     }
     return ESP_OK;
 

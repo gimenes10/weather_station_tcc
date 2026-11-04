@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
 
@@ -48,6 +49,7 @@ static bool                    s_wind_ok;
 static bool                    s_gauge_ok;
 static uint16_t                s_seq;
 static uint32_t                s_i2c_fail;
+static bool                    s_i2c_missing = true;   /* Algum sensor I2C falhou no último ciclo */
 
 /* ---------- Inicialização ---------- */
 
@@ -70,6 +72,9 @@ esp_err_t station_init(void)
 
     s_adc_ok   = (adc_reader_init() == ESP_OK);
     s_gp2y_ok  = s_adc_ok && (gp2y_init() == ESP_OK);
+#if GP2Y_Q2_TEST
+    gp2y_q2_test();   /* Não retorna: só para medir o driver do LED */
+#endif
     s_rain_ok  = s_adc_ok && (rain_sensor_init() == ESP_OK);
     s_wind_ok  = (wind_sensor_init() == ESP_OK);
     s_gauge_ok = (rain_gauge_init() == ESP_OK);
@@ -114,8 +119,10 @@ static void measure(readings_t *r)
     uint32_t         bme_ms  = 0;
     uint32_t         wait_ms = BH1750_MEAS_MS;
 
-    /* 0. Diagnóstico: quem responde no barramento */
-    (void)i2c_bus_scan(s_bus);
+    /* 0. Diagnóstico só quando algum sensor I2C falhou no ciclo anterior */
+    if (s_i2c_missing) {
+        (void)i2c_bus_scan(s_bus);
+    }
 
     /* 1. Dispara as conversões, que correm em paralelo */
     r->env_err = bme_start(&bme_ms);
@@ -144,6 +151,8 @@ static void measure(readings_t *r)
 /** Barramento travado (SDA preso em 0) derruba os dois sensores ao mesmo tempo. */
 static void i2c_check(const readings_t *r)
 {
+    s_i2c_missing = (r->env_err != ESP_OK) || (r->lux_err != ESP_OK);
+
     if (r->env_err == ESP_OK || r->lux_err == ESP_OK) {
         s_i2c_fail = 0;
         return;
@@ -200,6 +209,9 @@ static void build_packet(const readings_t *r, lora_packet_t *p)
         p->valid     |= LORA_VALID_DUST;
         p->dust_ugm3  = u16_sat(r->dust.dust_ugm3);
         p->dust_vo_mv = u16_sat((float)r->dust.vo_mv);
+        if (r->dust.saturated) {
+            p->flags |= LORA_FLAG_DUST_SAT;
+        }
     }
     if (r->rain_err == ESP_OK) {
         p->valid  |= LORA_VALID_RAIN;
@@ -220,14 +232,51 @@ static void build_packet(const readings_t *r, lora_packet_t *p)
     lora_packet_finalize(p);
 }
 
+/* Valor formatado, ou "--" quando o sensor não leu (bit de valid em 0) */
+static const char *fmt(char *buf, size_t n, bool ok, const char *f, double v)
+{
+    if (!ok) {
+        return "--";
+    }
+    snprintf(buf, n, f, v);
+    return buf;
+}
+
 static void log_readings(const readings_t *r, const lora_packet_t *p)
 {
-    ESP_LOGI(TAG, "#%u valid=0x%02X | T=%.2fC UR=%.1f%% P=%.1fhPa gas=%.1fk | lux=%.0f",
-             p->seq, p->valid, r->env.temperature_c, r->env.humidity_pct, r->env.pressure_hpa,
-             r->env.gas_ohm / 1000.0f, r->lux);
-    ESP_LOGI(TAG, "poeira=%.0fug/m3 (Vo=%d Voc=%d mV) | FC-22=%d mV %s | vento=%.2f raj=%.2f m/s | chuva=%.2f mm",
-             r->dust.dust_ugm3, r->dust.vo_mv, r->dust.voc_mv, r->rain.mv, r->rain.wet ? "molhado" : "seco",
-             r->wind.avg_ms, r->wind.gust_ms, r->rain_total_mm);
+    char t[12], h[12], pr[12], g[12], lx[12], d[12], vo[12], rn[12], ws[12], wg[12], rt[12];
+    const bool thp  = lora_packet_has(p, LORA_VALID_THP);
+    const bool rain = lora_packet_has(p, LORA_VALID_RAIN);
+    const bool wind = lora_packet_has(p, LORA_VALID_WIND);
+    const bool dust = lora_packet_has(p, LORA_VALID_DUST);
+
+    ESP_LOGI(TAG, "#%u valid=0x%02X | T=%sC UR=%s%% P=%shPa gas=%sk | lux=%s", p->seq, p->valid,
+             fmt(t,  sizeof(t),  thp, "%.2f", r->env.temperature_c),
+             fmt(h,  sizeof(h),  thp, "%.1f", r->env.humidity_pct),
+             fmt(pr, sizeof(pr), thp, "%.1f", r->env.pressure_hpa),
+             fmt(g,  sizeof(g),  lora_packet_has(p, LORA_VALID_GAS), "%.1f", r->env.gas_ohm / 1000.0),
+             fmt(lx, sizeof(lx), lora_packet_has(p, LORA_VALID_LUX), "%.0f", r->lux));
+    ESP_LOGI(TAG, "poeira=%s%sug/m3 (Vo=%s mV) | FC-22=%s mV %s | vento=%s raj=%s m/s | chuva=%s mm",
+             (dust && r->dust.saturated) ? ">" : "",
+             fmt(d,  sizeof(d),  dust, "%.0f", r->dust.dust_ugm3),
+             fmt(vo, sizeof(vo), dust, "%.0f", (double)r->dust.vo_mv),
+             fmt(rn, sizeof(rn), rain, "%.0f", (double)r->rain.mv),
+             rain ? (r->rain.wet ? "molhado" : "seco") : "",
+             fmt(ws, sizeof(ws), wind, "%.2f", r->wind.avg_ms),
+             fmt(wg, sizeof(wg), wind, "%.2f", r->wind.gust_ms),
+             fmt(rt, sizeof(rt), lora_packet_has(p, LORA_VALID_GAUGE), "%.2f", r->rain_total_mm));
+
+    /* Um aviso por sensor que falhou neste ciclo, com o motivo */
+    const struct { const char *name; esp_err_t err; } st[] = {
+        { "BME680", r->env_err },  { "BH1750", r->lux_err }, { "GP2Y", r->dust_err },
+        { "FC-22",  r->rain_err }, { "Vento",  r->wind_err },
+    };
+    for (size_t i = 0; i < sizeof(st) / sizeof(st[0]); i++) {
+        if (st[i].err != ESP_OK) {
+            ESP_LOGW(TAG, "%s sem leitura: %s%s", st[i].name, esp_err_to_name(st[i].err),
+                     st[i].err == ESP_ERR_INVALID_STATE ? " (nao inicializado)" : "");
+        }
+    }
 }
 
 /* ---------- Loop ---------- */
