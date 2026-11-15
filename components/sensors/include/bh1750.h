@@ -17,6 +17,9 @@
 
 esp_err_t bh1750_init(i2c_master_bus_handle_t bus);
 
+/** @brief Remove o sensor do barramento (antes de recriar o I2C). */
+void bh1750_deinit(void);
+
 /** @brief Liga, ajusta MTreg e dispara uma medição one-time. */
 esp_err_t bh1750_trigger(void);
 

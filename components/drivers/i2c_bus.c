@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_rom_sys.h"
+#include "esp_cpu.h"
 #include "driver/gpio.h"
 #include <stdio.h>
 
@@ -39,9 +40,76 @@ static void pin_check(void)
              SENSOR_I2C_SCL, gpio_get_level(SENSOR_I2C_SCL));
 }
 
+/*
+ * Teste de cada linha como GPIO open-drain, antes do driver I2C:
+ *  - força a 0 e lê de volta (o pino consegue gerar o clock/dado?)
+ *  - lê a outra linha nesse instante (SDA e SCL em curto?)
+ *  - solta e mede a subida até voltar a 1 (borda lenta ou algo segurando?)
+ */
+#define LINE_RISE_MAX_NS   2000000   /* 2 ms: não voltou = linha presa */
+#define LINE_RISE_SLOW_NS  10000     /* A 5 kHz o meio período é 100 µs; acima de 10 µs já é suspeito */
+
+static void line_test(void)
+{
+    static const struct { gpio_num_t pin, other; const char *name; } L[] = {
+        { SENSOR_I2C_SDA, SENSOR_I2C_SCL, "SDA" },
+        { SENSOR_I2C_SCL, SENSOR_I2C_SDA, "SCL" },
+    };
+    const gpio_config_t io = {
+        .pin_bit_mask = (1ULL << SENSOR_I2C_SDA) | (1ULL << SENSOR_I2C_SCL),
+        .mode         = GPIO_MODE_INPUT_OUTPUT_OD,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    const uint32_t ticks_us = esp_rom_get_cpu_ticks_per_us();
+
+    gpio_config(&io);
+    gpio_set_level(SENSOR_I2C_SDA, 1);
+    gpio_set_level(SENSOR_I2C_SCL, 1);
+    esp_rom_delay_us(200);
+
+    for (size_t i = 0; i < sizeof(L) / sizeof(L[0]); i++) {
+        const int idle = gpio_get_level(L[i].pin);
+
+        gpio_set_level(L[i].pin, 0);
+        esp_rom_delay_us(20);
+        const int low   = gpio_get_level(L[i].pin);
+        const int other = gpio_get_level(L[i].other);
+
+        const uint32_t t0 = esp_cpu_get_cycle_count();
+        uint32_t       dt = 0;
+        gpio_set_level(L[i].pin, 1);
+        while (!gpio_get_level(L[i].pin)) {
+            dt = esp_cpu_get_cycle_count() - t0;
+            if (dt / ticks_us * 1000U > LINE_RISE_MAX_NS) {
+                break;
+            }
+        }
+        dt = esp_cpu_get_cycle_count() - t0;
+        const uint32_t rise_ns = dt * 1000U / ticks_us;
+        const bool     stuck   = !gpio_get_level(L[i].pin);
+
+        const char *diag = !idle             ? "presa em 0 em repouso"
+                         : low               ? "o pino nao consegue baixar a linha (curto com 3V3?)"
+                         : !other            ? "a outra linha caiu junto: SDA e SCL em curto"
+                         : stuck             ? "nao volta a 1: sensor ou curto segurando a linha"
+                         : rise_ns > LINE_RISE_SLOW_NS ? "borda lenta: capacitancia alta ou pull-up fraco"
+                                                       : "OK";
+        ESP_LOGI(TAG, "Teste %s: repouso=%d, forcada a 0 le %d, outra linha=%d, sobe em %s%lu ns -> %s",
+                 L[i].name, idle, low, other, stuck ? ">" : "", (unsigned long)rise_ns, diag);
+        esp_rom_delay_us(50);
+    }
+
+    /* Devolve os pinos ao estado de boot antes de o driver I2C assumi-los */
+    gpio_reset_pin(SENSOR_I2C_SDA);
+    gpio_reset_pin(SENSOR_I2C_SCL);
+}
+
 esp_err_t i2c_bus_init(i2c_master_bus_handle_t *bus)
 {
     pin_check();
+    line_test();
 
     const i2c_master_bus_config_t cfg = {
         .clk_source        = I2C_CLK_SRC_DEFAULT,
@@ -62,6 +130,75 @@ esp_err_t i2c_bus_init(i2c_master_bus_handle_t *bus)
 esp_err_t i2c_bus_reset(i2c_master_bus_handle_t bus)
 {
     return i2c_master_bus_reset(bus);
+}
+
+#define RECOVER_HALF_US  50      /* Meio período de 10 kHz */
+#define RECOVER_PULSES   16      /* 9 bastam para um byte; 16 cobrem dois */
+
+esp_err_t i2c_bus_recover(i2c_master_bus_handle_t *bus)
+{
+    /* Apaga o driver para os pinos voltarem a ser GPIO. Falha se ainda houver
+       dispositivo registrado: os drivers dos sensores soltam os seus antes. */
+    esp_err_t ret = ESP_OK;
+
+    if (*bus != NULL) {   /* NULL: a recriação anterior falhou */
+        ret = i2c_del_master_bus(*bus);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Recuperacao: nao consegui apagar o barramento (%s)", esp_err_to_name(ret));
+            goto err;
+        }
+        *bus = NULL;
+    }
+
+    const gpio_config_t io = {
+        .pin_bit_mask = (1ULL << SENSOR_I2C_SDA) | (1ULL << SENSOR_I2C_SCL),
+        .mode         = GPIO_MODE_INPUT_OUTPUT_OD,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io);
+    gpio_set_level(SENSOR_I2C_SDA, 1);
+    gpio_set_level(SENSOR_I2C_SCL, 1);
+    esp_rom_delay_us(RECOVER_HALF_US);
+
+    const int sda0 = gpio_get_level(SENSOR_I2C_SDA);
+    const int scl0 = gpio_get_level(SENSOR_I2C_SCL);
+    int       n    = 0;
+
+    /* Pulsos no SCL até o escravo terminar o byte que acha que está enviando */
+    while (!gpio_get_level(SENSOR_I2C_SDA) && n < RECOVER_PULSES) {
+        gpio_set_level(SENSOR_I2C_SCL, 0);
+        esp_rom_delay_us(RECOVER_HALF_US);
+        gpio_set_level(SENSOR_I2C_SCL, 1);
+        esp_rom_delay_us(RECOVER_HALF_US);
+        n++;
+    }
+
+    /* STOP: SDA sobe com SCL alto, todos os escravos voltam ao repouso */
+    gpio_set_level(SENSOR_I2C_SCL, 0);
+    esp_rom_delay_us(RECOVER_HALF_US);
+    gpio_set_level(SENSOR_I2C_SDA, 0);
+    esp_rom_delay_us(RECOVER_HALF_US);
+    gpio_set_level(SENSOR_I2C_SCL, 1);
+    esp_rom_delay_us(RECOVER_HALF_US);
+    gpio_set_level(SENSOR_I2C_SDA, 1);
+    esp_rom_delay_us(RECOVER_HALF_US);
+
+    const int sda1 = gpio_get_level(SENSOR_I2C_SDA);
+    const int scl1 = gpio_get_level(SENSOR_I2C_SCL);
+
+    ESP_LOGW(TAG, "Recuperacao: antes SDA=%d SCL=%d, %d pulsos em SCL, depois SDA=%d SCL=%d%s",
+             sda0, scl0, n, sda1, scl1,
+             (sda1 && scl1) ? "" : " -> continuam presas: sensor travado sem soltar ou fuga para o GND (umidade)");
+
+    /* Devolve os pinos ao estado de boot; sem isso o driver I2C acusa conflito ao reassumi-los */
+    gpio_reset_pin(SENSOR_I2C_SDA);
+    gpio_reset_pin(SENSOR_I2C_SCL);
+
+    ret = i2c_bus_init(bus);
+err:
+    return ret;
 }
 
 /* Nível atual das linhas (o driver deixa a entrada habilitada) e o diagnóstico */

@@ -24,6 +24,14 @@ int i2c_bus_scan(i2c_master_bus_handle_t bus);
 /** @brief Libera um barramento travado (9 pulsos em SCL + reset do controlador). */
 esp_err_t i2c_bus_reset(i2c_master_bus_handle_t bus);
 
+/**
+ * @brief Recuperação completa: apaga o driver, libera as linhas por GPIO
+ *        (pulsos em SCL até o SDA soltar + STOP) e cria o barramento de novo.
+ *        Os dispositivos registrados precisam ser removidos antes.
+ * @param bus Handle atual; recebe o novo
+ */
+esp_err_t i2c_bus_recover(i2c_master_bus_handle_t *bus);
+
 /** @brief Adiciona um dispositivo de 7 bits na frequência do barramento. */
 esp_err_t i2c_bus_add(i2c_master_bus_handle_t bus, uint8_t addr, i2c_master_dev_handle_t *dev);
 

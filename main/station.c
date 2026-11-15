@@ -22,9 +22,10 @@
 
 static const char *TAG = "station";
 
-/* Recuperação do barramento I2C: ciclos seguidos sem BME680 nem BH1750 */
-#define I2C_FAIL_RESET      3       /* → i2c_bus_reset() */
-#define I2C_FAIL_RESTART    10      /* → esp_restart() (~10 min) */
+/* Recuperação do barramento I2C */
+#define I2C_FAIL_RECOVER    2       /* Ciclos seguidos com algum sensor I2C falhando → recuperação */
+#define I2C_RECOVER_EVERY   10      /* Se continuar falhando, nova recuperação a cada 10 ciclos */
+#define I2C_FAIL_RESTART    10      /* Ciclos seguidos sem BME680 nem BH1750 → esp_restart() */
 
 typedef struct {
     esp_err_t     env_err;
@@ -48,7 +49,8 @@ static bool                    s_rain_ok;
 static bool                    s_wind_ok;
 static bool                    s_gauge_ok;
 static uint16_t                s_seq;
-static uint32_t                s_i2c_fail;
+static uint32_t                s_i2c_fail;             /* Ciclos seguidos sem nenhum dos dois */
+static uint32_t                s_any_fail;             /* Ciclos seguidos com pelo menos um falhando */
 static bool                    s_i2c_missing = true;   /* Algum sensor I2C falhou no último ciclo */
 
 /* ---------- Inicialização ---------- */
@@ -152,20 +154,31 @@ static void measure(readings_t *r)
 static void i2c_check(const readings_t *r)
 {
     s_i2c_missing = (r->env_err != ESP_OK) || (r->lux_err != ESP_OK);
+    s_any_fail    = s_i2c_missing ? s_any_fail + 1 : 0;
+    s_i2c_fail    = (r->env_err != ESP_OK && r->lux_err != ESP_OK) ? s_i2c_fail + 1 : 0;
 
-    if (r->env_err == ESP_OK || r->lux_err == ESP_OK) {
-        s_i2c_fail = 0;
-        return;
-    }
-
-    s_i2c_fail++;
-    if (s_i2c_fail == I2C_FAIL_RESET) {
-        ESP_LOGW(TAG, "I2C sem resposta ha %d ciclos: reset do barramento (%s)",
-                 I2C_FAIL_RESET, esp_err_to_name(i2c_bus_reset(s_bus)));
-    } else if (s_i2c_fail >= I2C_FAIL_RESTART) {
+    if (s_i2c_fail >= I2C_FAIL_RESTART) {
         ESP_LOGE(TAG, "I2C sem resposta ha %d ciclos: reiniciando", I2C_FAIL_RESTART);
         vTaskDelay(pdMS_TO_TICKS(100));   /* Deixa o log sair pela UART */
         esp_restart();
+    }
+
+    /* Um sensor que trava sozinho (o outro segue lendo) também precisa de recuperação:
+       na 2ª falha seguida e depois a cada 10 ciclos, enquanto continuar */
+    if (s_any_fail < I2C_FAIL_RECOVER || ((s_any_fail - I2C_FAIL_RECOVER) % I2C_RECOVER_EVERY) != 0) {
+        return;
+    }
+
+    /* Solta os dispositivos, libera as linhas por GPIO e recria o driver; o próximo
+       ciclo reinicializa os sensores (o BME680 com soft reset) */
+    ESP_LOGW(TAG, "I2C com falha ha %lu ciclo(s) (BME680 %s, BH1750 %s): recuperando o barramento",
+             (unsigned long)s_any_fail, r->env_err == ESP_OK ? "ok" : "falhou",
+             r->lux_err == ESP_OK ? "ok" : "falhou");
+    bme680_deinit();
+    bh1750_deinit();
+    const esp_err_t ret = i2c_bus_recover(&s_bus);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Recuperacao do I2C falhou: %s", esp_err_to_name(ret));
     }
 }
 

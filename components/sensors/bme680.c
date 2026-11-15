@@ -136,6 +136,14 @@ static esp_err_t try_addr(i2c_master_bus_handle_t bus, uint8_t addr)
     if (ret != ESP_OK) {
         goto err_add;
     }
+    /* Soft reset (0xB6 em 0xE0): tira o chip de qualquer estado travado, como
+       desligar e ligar. A calibração fica na NVM e a configuração é regravada
+       a cada disparo. No endereço errado a escrita dá NACK e o teste segue. */
+    ret = i2c_reg_write8(s_dev, 0xE0, 0xB6);
+    if (ret != ESP_OK) {
+        goto err_dev;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
     ret = i2c_reg_read(s_dev, REG_CHIP_ID, &id, 1);
     if (ret != ESP_OK) {
         goto err_dev;
@@ -233,6 +241,14 @@ static uint32_t meas_dur_us(void)
     return us;
 }
 
+void bme680_deinit(void)
+{
+    if (s_dev != NULL) {
+        i2c_master_bus_rm_device(s_dev);
+        s_dev = NULL;
+    }
+}
+
 esp_err_t bme680_trigger(uint32_t *wait_ms)
 {
     const uint8_t run_gas = (s_cal.variant == VARIANT_GAS_HIGH) ? 0x20 : 0x10;
@@ -260,6 +276,7 @@ esp_err_t bme680_trigger(uint32_t *wait_ms)
     return ESP_OK;
 
 err:
+    ESP_LOGW(TAG, "Disparo falhou (escrita de configuracao): %s", esp_err_to_name(ret));
     return ret;
 }
 
@@ -371,5 +388,6 @@ esp_err_t bme680_read(bme680_data_t *out)
     return ESP_OK;
 
 err:
+    ESP_LOGW(TAG, "Leitura falhou depois de %lu ms de espera: %s", (unsigned long)waited, esp_err_to_name(ret));
     return ret;
 }

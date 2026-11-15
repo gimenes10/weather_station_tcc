@@ -25,6 +25,9 @@ typedef struct {
 /** @brief Adiciona ao barramento, confere o chip ID e carrega a calibração. */
 esp_err_t bme680_init(i2c_master_bus_handle_t bus);
 
+/** @brief Remove o sensor do barramento (antes de recriar o I2C). A calibração fica na RAM. */
+void bme680_deinit(void);
+
 /**
  * @brief Configura oversampling e aquecedor e dispara uma medição forced.
  * @param[out] wait_ms Tempo mínimo até o resultado ficar pronto

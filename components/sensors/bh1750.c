@@ -82,6 +82,14 @@ esp_err_t bh1750_init(i2c_master_bus_handle_t bus)
     return ret;
 }
 
+void bh1750_deinit(void)
+{
+    if (s_dev != NULL) {
+        i2c_master_bus_rm_device(s_dev);
+        s_dev = NULL;
+    }
+}
+
 esp_err_t bh1750_trigger(void)
 {
     static const uint8_t seq[] = {

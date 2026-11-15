@@ -27,7 +27,7 @@
 #define SENSOR_I2C_PORT       I2C_NUM_0
 #define SENSOR_I2C_SDA        GPIO_NUM_41
 #define SENSOR_I2C_SCL        GPIO_NUM_40
-#define SENSOR_I2C_FREQ_HZ    10000       /* Margem de integridade com cabos até o shield */
+#define SENSOR_I2C_FREQ_HZ    5000        /* Margem de integridade com cabos até o shield (era 10 kHz) */
 
 #define BME680_I2C_ADDR       0x77        /* SDO em nível alto (como está montado) */
 #define BME680_I2C_ADDR_ALT   0x76        /* SDO no GND (tentado se 0x77 não responder) */
